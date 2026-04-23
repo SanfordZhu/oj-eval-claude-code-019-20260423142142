@@ -41,7 +41,7 @@ int main() {
   std::vector<sjtu::Matrix *> answers;
 
   // Read Data from File
-  std::string filename = "./data/keys.txt";
+  std::string filename = "/workspace/data/019/data/keys.txt";
   std::vector<float> data;
 
   DataLoader loader;
@@ -63,7 +63,7 @@ int main() {
 
   data.clear();
 
-  filename = "./data/values.txt";
+  filename = "/workspace/data/019/data/values.txt";
 
   if (loader.loadDataFromFile(filename, data)) {
     std::cerr << "Data loaded successfully!" << std::endl;
@@ -82,7 +82,7 @@ int main() {
 
   data.clear();
 
-  filename = "./data/queries.txt";
+  filename = "/workspace/data/019/data/queries.txt";
 
   if (loader.loadDataFromFile(filename, data)) {
     std::cerr << "Data loaded successfully!" << std::endl;
@@ -101,7 +101,7 @@ int main() {
 
   data.clear();
 
-  filename = "./data/ans.txt";
+  filename = "/workspace/data/019/data/ans.txt";
 
   if (loader.loadDataFromFile(filename, data)) {
     std::cerr << "Data loaded successfully!" << std::endl;
