@@ -44,12 +44,21 @@ void Calculate(std::vector<Matrix *> keys, std::vector<Matrix *> values,
     Matrix *scores = matrix_memory_allocator.Allocate("scores");
     gpu_sim.MatMul(current_query, k_stack, scores);
 
-    // Prepare values in SRAM
+    // Build v_stack in SRAM
+    Matrix *v_stack = matrix_memory_allocator.Allocate("v_stack_init");
     for (size_t j = 0; j <= i; ++j) {
       gpu_sim.MoveMatrixToSharedMem(values[j]);
+      if (j == 0) {
+        gpu_sim.Copy(values[j], v_stack, kInSharedMemory);
+      } else {
+        Matrix *v_next = matrix_memory_allocator.Allocate("v_stack_next_" + std::to_string(j));
+        gpu_sim.Concat(v_stack, values[j], v_next, 0, kInSharedMemory);
+        gpu_sim.ReleaseMatrix(v_stack);
+        v_stack = v_next;
+      }
     }
 
-    // Build answer row by row: for each row softmax weights, accumulate scaled V[j]
+    // Build answer row by row: MatMul(row_soft, v_stack)
     Matrix *answer = nullptr;
     for (size_t r = 0; r <= i; ++r) {
       Matrix *row = matrix_memory_allocator.Allocate("row_" + std::to_string(r));
@@ -61,31 +70,15 @@ void Calculate(std::vector<Matrix *> keys, std::vector<Matrix *> values,
       Matrix *row_soft = matrix_memory_allocator.Allocate("row_soft_" + std::to_string(r));
       gpu_sim.MatDiv(row_exp, sum_row, row_soft);
 
-      Matrix *row_acc = nullptr;
-      for (size_t j = 0; j <= i; ++j) {
-        Matrix *w = matrix_memory_allocator.Allocate("w_" + std::to_string(r) + "_" + std::to_string(j));
-        gpu_sim.GetColumn(row_soft, j, w, kInSharedMemory);
-        Matrix *scaled_v = matrix_memory_allocator.Allocate("scaled_v_" + std::to_string(r) + "_" + std::to_string(j));
-        gpu_sim.MatMulNum(values[j], w, scaled_v);
-        if (j == 0) {
-          row_acc = matrix_memory_allocator.Allocate("row_acc_" + std::to_string(r));
-          gpu_sim.Copy(scaled_v, row_acc, kInSharedMemory);
-        } else {
-          Matrix *row_next = matrix_memory_allocator.Allocate("row_next_" + std::to_string(r) + "_" + std::to_string(j));
-          gpu_sim.MatAdd(row_acc, scaled_v, row_next);
-          gpu_sim.ReleaseMatrix(row_acc);
-          row_acc = row_next;
-        }
-        gpu_sim.ReleaseMatrix(w);
-        gpu_sim.ReleaseMatrix(scaled_v);
-      }
+      Matrix *row_out = matrix_memory_allocator.Allocate("row_out_" + std::to_string(r));
+      gpu_sim.MatMul(row_soft, v_stack, row_out);
 
       if (r == 0) {
         answer = matrix_memory_allocator.Allocate("answer_round_" + std::to_string(i));
-        gpu_sim.Copy(row_acc, answer, kInSharedMemory);
+        gpu_sim.Copy(row_out, answer, kInSharedMemory);
       } else {
         Matrix *ans_next = matrix_memory_allocator.Allocate("answer_next_" + std::to_string(r));
-        gpu_sim.Concat(answer, row_acc, ans_next, 0, kInSharedMemory);
+        gpu_sim.Concat(answer, row_out, ans_next, 0, kInSharedMemory);
         gpu_sim.ReleaseMatrix(answer);
         answer = ans_next;
       }
@@ -94,7 +87,7 @@ void Calculate(std::vector<Matrix *> keys, std::vector<Matrix *> values,
       gpu_sim.ReleaseMatrix(row_exp);
       gpu_sim.ReleaseMatrix(sum_row);
       gpu_sim.ReleaseMatrix(row_soft);
-      gpu_sim.ReleaseMatrix(row_acc);
+      gpu_sim.ReleaseMatrix(row_out);
     }
 
     // Move answer to HBM for committing
